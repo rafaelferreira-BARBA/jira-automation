@@ -114,6 +114,6 @@ public class JiraClient {
     }
 
     private String escape(String text) {
-        return text.replace("\"", "\\\"");
+        return text == null ? "" : text.replace("\"", "\\\"");
     }
 }

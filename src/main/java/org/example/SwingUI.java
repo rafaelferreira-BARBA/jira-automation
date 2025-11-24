@@ -7,25 +7,36 @@ import com.opencsv.CSVReaderBuilder;
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
 import java.awt.*;
+import java.awt.event.ItemEvent;
 import java.io.FileReader;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.*;
 import java.util.List;
-import java.util.Properties;
 
 public class SwingUI {
-
+    private static JFrame frame;
     private static JTable table;
     private static DefaultTableModel model;
     private static String selectedCsvPath = null;
     private static JComboBox<String> commandBox;
+    private static JComboBox<String> delimiterBox;
+
+    // Painel de mapeamento e estruturas auxiliares
+    private static JPanel mappingPanel;
+    private static List<String> currentHeaders = new ArrayList<>();
+    private static List<JComboBox<String>> mappingCombos = new ArrayList<>();
+    private static boolean refreshing = false; // guard contra recursão
+
+    // Opções de campos do Jira para mapeamento
+    private static final String[] JIRA_FIELDS = new String[]{"summary", "description", "component", "parent", "label", "sp", "skip"};
 
     public static void launch() {
         SwingUtilities.invokeLater(() -> {
 
-            JFrame frame = new JFrame("Jira Automation");
+            frame = new JFrame("Jira Automation");
             frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-            frame.setSize(800, 600);
+            frame.setSize(1000, 600);
             frame.setLayout(new BorderLayout());
 
             model = new DefaultTableModel();
@@ -37,42 +48,71 @@ public class SwingUI {
             JButton btnChooseCsv = new JButton("Escolher CSV");
             JButton btnRun = new JButton("Executar");
             commandBox = new JComboBox<>(new String[]{"Sub-Task", "UserStory"});
+            delimiterBox = new JComboBox<>(new String[]{";", ",", "|", "TAB"});
+            delimiterBox.setSelectedItem(";");
 
             bottom.add(new JLabel("Issue Type:"));
             bottom.add(commandBox);
+            bottom.add(new JLabel("Delimitador:"));
+            bottom.add(delimiterBox);
             bottom.add(btnChooseCsv);
             bottom.add(btnRun);
 
             frame.add(bottom, BorderLayout.SOUTH);
 
-            btnChooseCsv.addActionListener(evt -> chooseCsvFile(frame));
+            // Painel de mapeamento à direita
+            mappingPanel = new JPanel(new BorderLayout());
+            mappingPanel.add(new JLabel("Mapeamento De → Para", SwingConstants.CENTER), BorderLayout.NORTH);
+            frame.add(mappingPanel, BorderLayout.EAST);
 
+            btnChooseCsv.addActionListener(evt -> chooseCsvFile(frame));
             btnRun.addActionListener(evt -> runAutomation());
 
             frame.setVisible(true);
         });
     }
 
-    private static void chooseCsvFile(JFrame frame) {
+    private static void chooseCsvFile(JFrame parent) {
         JFileChooser chooser = new JFileChooser();
-        int result = chooser.showOpenDialog(frame);
+        int result = chooser.showOpenDialog(parent);
         if (result == JFileChooser.APPROVE_OPTION) {
             selectedCsvPath = chooser.getSelectedFile().getAbsolutePath();
             loadCsvToTable(selectedCsvPath);
         }
     }
 
+    private static char getSelectedDelimiterChar() {
+        String sel = (String) delimiterBox.getSelectedItem();
+        if (sel == null) return ';';
+        switch (sel) {
+            case ",":
+                return ',';
+            case "|":
+                return '|';
+            case "TAB":
+                return '\t';
+            case ";":
+            default:
+                return ';';
+        }
+    }
+
     private static void loadCsvToTable(String path) {
         try {
-            char customDelimiter = ';';
+            char delimiter = getSelectedDelimiterChar();
+
             CSVReader reader = new CSVReaderBuilder(new FileReader(path))
-                    .withCSVParser(new CSVParserBuilder()
-                            .withSeparator(customDelimiter)
-                            .build())
+                    .withCSVParser(new CSVParserBuilder().withSeparator(delimiter).build())
                     .build();
 
             List<String[]> rows = reader.readAll();
+            if (rows.isEmpty()) {
+                JOptionPane.showMessageDialog(null, "CSV vazio.");
+                return;
+            }
+
             String[] header = rows.get(0);
+            currentHeaders = Arrays.asList(header);
 
             model.setColumnIdentifiers(header);
             model.setRowCount(0);
@@ -82,6 +122,9 @@ public class SwingUI {
                 model.addRow(r);
             }
 
+            // Construir/atualizar UI de mapeamento
+            buildMappingUI(header);
+
             JOptionPane.showMessageDialog(null, "CSV carregado com sucesso!");
 
         } catch (Exception e) {
@@ -89,10 +132,162 @@ public class SwingUI {
         }
     }
 
+    private static void buildMappingUI(String[] header) {
+        // Limpa painel de mapeamento
+        mappingPanel.removeAll();
+        mappingCombos.clear();
+
+        JPanel inner = new JPanel();
+        inner.setLayout(new GridBagLayout());
+        GridBagConstraints gbc = new GridBagConstraints();
+        gbc.insets = new Insets(4, 6, 4, 6);
+        gbc.anchor = GridBagConstraints.WEST;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+
+        // Título
+        JLabel title = new JLabel("Mapeamento De → Para", SwingConstants.CENTER);
+        title.setFont(title.getFont().deriveFont(Font.BOLD));
+        mappingPanel.add(title, BorderLayout.NORTH);
+
+        // Conteúdo
+        JScrollPane scroll = new JScrollPane(inner);
+        scroll.setPreferredSize(new Dimension(300, 0));
+        mappingPanel.add(scroll, BorderLayout.CENTER);
+
+        for (int i = 0; i < header.length; i++) {
+            // Label do cabeçalho
+            gbc.gridx = 0;
+            gbc.gridy = i;
+            JLabel lbl = new JLabel(header[i]);
+            inner.add(lbl, gbc);
+
+            // Dropdown de mapeamento
+            gbc.gridx = 1;
+            JComboBox<String> combo = new JComboBox<>(JIRA_FIELDS);
+            combo.setSelectedItem("skip"); // padrão
+            mappingCombos.add(combo);
+            inner.add(combo, gbc);
+
+            combo.addItemListener(e -> {
+                if (e.getStateChange() == ItemEvent.SELECTED && !refreshing) {
+                    // Atualiza os demais combos respeitando unicidade
+                    refreshMappingChoices();
+                }
+            });
+        }
+
+        // Aplicar unicidade de opções (exceto "skip")
+        refreshMappingChoices();
+
+        mappingPanel.revalidate();
+        mappingPanel.repaint();
+    }
+
+    private static void refreshMappingChoices() {
+        refreshing = true; // evita recursão por eventos ao atualizar os modelos
+        try {
+            // Coletar opções já selecionadas (exceto "skip")
+            Set<String> taken = new HashSet<>();
+            for (JComboBox<String> combo : mappingCombos) {
+                String sel = selLower(combo);
+                if (sel != null && !"skip".equals(sel)) {
+                    taken.add(sel);
+                }
+            }
+
+            // Atualizar modelo de cada combo de acordo com as seleções
+            for (JComboBox<String> combo : mappingCombos) {
+                String current = selLower(combo);
+                DefaultComboBoxModel<String> newModel = new DefaultComboBoxModel<>();
+                for (String opt : JIRA_FIELDS) {
+                    String lo = opt.toLowerCase(Locale.ROOT);
+                    // "skip" sempre disponível. Demais: disponíveis se não selecionados em outro combo,
+                    // ou se este combo já os tem selecionados.
+                    if ("skip".equals(lo) || lo.equals(current) || !taken.contains(lo)) {
+                        newModel.addElement(opt);
+                    }
+                }
+
+                // Só troque o modelo se houver diferença real para reduzir eventos
+                if (!modelEquals(combo.getModel(), newModel)) {
+                    combo.setModel(newModel);
+                }
+
+                // Garantir seleção atual
+                if (current == null) {
+                    combo.setSelectedItem("skip");
+                } else {
+                    combo.setSelectedItem(current);
+                }
+            }
+        } finally {
+            refreshing = false;
+        }
+    }
+
+    private static String selLower(JComboBox<String> combo) {
+        Object selObj = combo.getSelectedItem();
+        return selObj == null ? null : selObj.toString().toLowerCase(Locale.ROOT);
+    }
+
+    private static boolean modelEquals(ComboBoxModel<String> a, DefaultComboBoxModel<String> b) {
+        int sizeA = a.getSize();
+        int sizeB = b.getSize();
+        if (sizeA != sizeB) return false;
+        for (int i = 0; i < sizeA; i++) {
+            Object ai = a.getElementAt(i);
+            Object bi = b.getElementAt(i);
+            if (!Objects.equals(ai, bi)) return false;
+        }
+        return true;
+    }
+
+    private static int indexFor(String field) {
+        String target = field.toLowerCase(Locale.ROOT);
+        for (int i = 0; i < mappingCombos.size(); i++) {
+            Object selObj = mappingCombos.get(i).getSelectedItem();
+            if (selObj != null) {
+                String sel = selObj.toString().toLowerCase(Locale.ROOT);
+                if (sel.equals(target)) return i;
+            }
+        }
+        return -1;
+    }
+
+    private static String safeGet(String[] row, int idx) {
+        if (row == null || idx < 0 || idx >= row.length) return "";
+        return row[idx] == null ? "" : row[idx];
+    }
+
     private static void runAutomation() {
         if (selectedCsvPath == null) {
             JOptionPane.showMessageDialog(null, "Selecione um CSV antes!");
             return;
+        }
+
+        // Validar mapeamentos mínimos por tipo de issue
+        String cmd = (String) commandBox.getSelectedItem();
+        boolean isUserStory = "UserStory".equalsIgnoreCase(cmd);
+
+        int summaryIdx = indexFor("summary");
+        int descriptionIdx = indexFor("description");
+        int componentIdx = indexFor("component");
+
+        if (summaryIdx < 0 || descriptionIdx < 0 || componentIdx < 0) {
+            JOptionPane.showMessageDialog(null, "Mapeie 'summary', 'description' e 'component' antes de executar.");
+            return;
+        }
+
+        int parentIdx = -1, labelIdx = -1, spIdx = -1;
+        if (!isUserStory) {
+            parentIdx = indexFor("parent");
+            labelIdx = indexFor("label");
+            spIdx = indexFor("sp");
+
+            if (parentIdx < 0 || labelIdx < 0 || spIdx < 0) {
+                JOptionPane.showMessageDialog(null, "Para Sub-Task, mapeie 'parent', 'label' e 'sp' além dos campos obrigatórios.");
+                return;
+            }
         }
 
         try {
@@ -105,29 +300,30 @@ public class SwingUI {
 
             JiraClient client = new JiraClient(domain, email, token, projectKey);
 
-            char customDelimiter = ';';
+            char delimiter = getSelectedDelimiterChar();
             CSVReader reader = new CSVReaderBuilder(new FileReader(selectedCsvPath))
-                    .withCSVParser(new CSVParserBuilder().withSeparator(customDelimiter).build())
+                    .withCSVParser(new CSVParserBuilder().withSeparator(delimiter).build())
                     .build();
 
             List<String[]> rows = reader.readAll();
-            rows.remove(0);
-
-            String cmd = (String) commandBox.getSelectedItem();
+            if (!rows.isEmpty()) {
+                rows.remove(0); // remove cabeçalho
+            }
 
             int count = 0;
+
             for (String[] row : rows) {
+                String summary = safeGet(row, summaryIdx);
+                String description = safeGet(row, descriptionIdx);
+                String component = safeGet(row, componentIdx);
 
-                String summary = row[0];
-                String description = row[1];
-                String component = row[2];
-
-                if ("UserStory".equalsIgnoreCase(cmd)) {
+                if (isUserStory) {
                     client.createStory(summary, description, component);
                 } else {
-                    String parentKey = row[3];
-                    String label = row[4];
-                    String sp = row[5];
+                    String parentKey = safeGet(row, parentIdx);
+                    String label = safeGet(row, labelIdx);
+                    String spStr = safeGet(row, spIdx);
+                    int sp = parseIntOrZero(spStr);
 
                     client.createSubTask(
                             parentKey,
@@ -135,7 +331,7 @@ public class SwingUI {
                             description,
                             component,
                             label,
-                            Integer.parseInt(sp)
+                            sp
                     );
                 }
                 count++;
@@ -148,6 +344,22 @@ public class SwingUI {
         }
     }
 
+    private static int parseIntOrZero(String s) {
+        try {
+            if (s == null) return 0;
+            s = s.trim().replace(",", "."); // caso venha "3,0" como texto
+            if (s.isEmpty()) return 0;
+            try {
+                return Integer.parseInt(s);
+            } catch (NumberFormatException nfe) {
+                double d = Double.parseDouble(s);
+                return (int) Math.round(d);
+            }
+        } catch (Exception ex) {
+            return 0;
+        }
+    }
+
     private static Properties loadProperties(String path) throws Exception {
         Properties props = new Properties();
         try (var reader = Files.newBufferedReader(Path.of(path))) {
@@ -155,4 +367,6 @@ public class SwingUI {
         }
         return props;
     }
+
+
 }
