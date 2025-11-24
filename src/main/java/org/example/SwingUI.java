@@ -43,10 +43,7 @@ public class SwingUI {
             table = new JTable(model);
             frame.add(new JScrollPane(table), BorderLayout.CENTER);
 
-            // Painel inferior com BorderLayout para posicionar:
-            // - esquerda: tipo de issue + delimitador
-            // - centro: botão escolher CSV
-            // - direita: botão executar
+            // Painel inferior com BorderLayout:
             JPanel bottom = new JPanel(new BorderLayout());
 
             JPanel leftBar = new JPanel(new FlowLayout(FlowLayout.LEFT));
@@ -68,14 +65,14 @@ public class SwingUI {
             rightBar.add(btnRun);
 
             bottom.add(leftBar, BorderLayout.WEST);
-            bottom.add(centerBar, BorderLayout.CENTER); // escolhe CSV central inferior
-            bottom.add(rightBar, BorderLayout.EAST);    // executar canto inferior direito
+            bottom.add(centerBar, BorderLayout.CENTER);
+            bottom.add(rightBar, BorderLayout.EAST);
 
             frame.add(bottom, BorderLayout.SOUTH);
 
             // Painel de mapeamento à direita
             mappingPanel = new JPanel(new BorderLayout());
-            mappingPanel.add(new JLabel("Mapeamento CSV → Jira", SwingConstants.CENTER), BorderLayout.NORTH);
+            mappingPanel.add(new JLabel("Mapeamento De → Para", SwingConstants.CENTER), BorderLayout.NORTH);
             frame.add(mappingPanel, BorderLayout.EAST);
 
             // Listeners
@@ -146,9 +143,6 @@ public class SwingUI {
             // Construir/atualizar UI de mapeamento
             buildMappingUI(header);
 
-            // Feedback opcional
-            // JOptionPane.showMessageDialog(null, "CSV carregado com sucesso!");
-
         } catch (Exception e) {
             JOptionPane.showMessageDialog(null, "Erro ao carregar CSV: " + e.getMessage());
         }
@@ -176,17 +170,31 @@ public class SwingUI {
         scroll.setPreferredSize(new Dimension(300, 0));
         mappingPanel.add(scroll, BorderLayout.CENTER);
 
+        // Set para evitar pré-selecionar a mesma opção em múltiplos combos
+        Set<String> used = new HashSet<>();
+
         for (int i = 0; i < header.length; i++) {
+            String headerName = header[i] == null ? "" : header[i].trim();
+
             // Label do cabeçalho
             gbc.gridx = 0;
             gbc.gridy = i;
-            JLabel lbl = new JLabel(header[i]);
+            JLabel lbl = new JLabel(headerName);
             inner.add(lbl, gbc);
 
             // Dropdown de mapeamento
             gbc.gridx = 1;
             JComboBox<String> combo = new JComboBox<>(JIRA_FIELDS);
-            combo.setSelectedItem("skip"); // padrão
+
+            // Pré-seleção: se o cabeçalho equalsIgnoreCase com uma opção e ainda não usada, seleciona essa opção; senão "skip"
+            String match = findMatchingOption(headerName);
+            if (match != null && !used.contains(match.toLowerCase(Locale.ROOT))) {
+                combo.setSelectedItem(match);
+                used.add(match.toLowerCase(Locale.ROOT));
+            } else {
+                combo.setSelectedItem("skip");
+            }
+
             mappingCombos.add(combo);
             inner.add(combo, gbc);
 
@@ -201,6 +209,17 @@ public class SwingUI {
 
         mappingPanel.revalidate();
         mappingPanel.repaint();
+    }
+
+    // Retorna a opção do dropdown que casa por equalsIgnoreCase com o cabeçalho; caso não haja, retorna null
+    private static String findMatchingOption(String headerName) {
+        if (headerName == null) return null;
+        for (String opt : JIRA_FIELDS) {
+            if (headerName.equalsIgnoreCase(opt)) {
+                return opt;
+            }
+        }
+        return null;
     }
 
     private static void refreshMappingChoices() {
@@ -350,7 +369,7 @@ public class SwingUI {
                 count++;
             }
 
-            JOptionPane.showMessageDialog(null, count + " tickets criados com sucesso!");
+            JOptionPane.showMessageDialog(null, count + "tickets criados com sucesso!");
 
         } catch (Exception e) {
             JOptionPane.showMessageDialog(null, "Erro ao executar automação: " + e.getMessage());
