@@ -302,8 +302,8 @@ public class SwingUI {
         int descriptionIdx = indexFor("description");
         int componentIdx = indexFor("component");
 
-        if (summaryIdx < 0 || descriptionIdx < 0 || componentIdx < 0) {
-            JOptionPane.showMessageDialog(null, "Mapeie 'summary', 'description' e 'component' antes de executar.");
+        if (summaryIdx < 0 || componentIdx < 0) {
+            JOptionPane.showMessageDialog(null, "Mapeie 'summary' e 'component' antes de executar.");
             return;
         }
 
@@ -313,8 +313,8 @@ public class SwingUI {
             labelIdx = indexFor("label");
             estimateIdx = indexFor("estimate");
 
-            if (parentIdx < 0 || labelIdx < 0 || estimateIdx < 0) {
-                JOptionPane.showMessageDialog(null, "Para Sub-Task, mapeie 'parent', 'label' e 'estimate' além dos campos obrigatórios.");
+            if (parentIdx < 0 ) {
+                JOptionPane.showMessageDialog(null, "Para Sub-Task, mapeie 'parent'");
                 return;
             }
         }
