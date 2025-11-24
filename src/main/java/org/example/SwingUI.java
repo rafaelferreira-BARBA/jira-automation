@@ -43,7 +43,15 @@ public class SwingUI {
             table = new JTable(model);
             frame.add(new JScrollPane(table), BorderLayout.CENTER);
 
-            JPanel bottom = new JPanel(new FlowLayout(FlowLayout.LEFT));
+            // Painel inferior com BorderLayout para posicionar:
+            // - esquerda: tipo de issue + delimitador
+            // - centro: botão escolher CSV
+            // - direita: botão executar
+            JPanel bottom = new JPanel(new BorderLayout());
+
+            JPanel leftBar = new JPanel(new FlowLayout(FlowLayout.LEFT));
+            JPanel centerBar = new JPanel(new FlowLayout(FlowLayout.CENTER));
+            JPanel rightBar = new JPanel(new FlowLayout(FlowLayout.RIGHT));
 
             JButton btnChooseCsv = new JButton("Escolher CSV");
             JButton btnRun = new JButton("Executar");
@@ -51,22 +59,35 @@ public class SwingUI {
             delimiterBox = new JComboBox<>(new String[]{";", ",", "|", "TAB"});
             delimiterBox.setSelectedItem(";");
 
-            bottom.add(new JLabel("Issue Type:"));
-            bottom.add(commandBox);
-            bottom.add(new JLabel("Delimitador:"));
-            bottom.add(delimiterBox);
-            bottom.add(btnChooseCsv);
-            bottom.add(btnRun);
+            leftBar.add(new JLabel("Issue Type:"));
+            leftBar.add(commandBox);
+            leftBar.add(new JLabel("Delimitador:"));
+            leftBar.add(delimiterBox);
+
+            centerBar.add(btnChooseCsv);
+            rightBar.add(btnRun);
+
+            bottom.add(leftBar, BorderLayout.WEST);
+            bottom.add(centerBar, BorderLayout.CENTER); // escolhe CSV central inferior
+            bottom.add(rightBar, BorderLayout.EAST);    // executar canto inferior direito
 
             frame.add(bottom, BorderLayout.SOUTH);
 
             // Painel de mapeamento à direita
             mappingPanel = new JPanel(new BorderLayout());
-            mappingPanel.add(new JLabel("Mapeamento De → Para", SwingConstants.CENTER), BorderLayout.NORTH);
+            mappingPanel.add(new JLabel("Mapeamento CSV → Jira", SwingConstants.CENTER), BorderLayout.NORTH);
             frame.add(mappingPanel, BorderLayout.EAST);
 
+            // Listeners
             btnChooseCsv.addActionListener(evt -> chooseCsvFile(frame));
             btnRun.addActionListener(evt -> runAutomation());
+
+            // Recarrega CSV ao trocar delimitador, se já houver arquivo selecionado
+            delimiterBox.addActionListener(e -> {
+                if (selectedCsvPath != null && !selectedCsvPath.isEmpty()) {
+                    loadCsvToTable(selectedCsvPath);
+                }
+            });
 
             frame.setVisible(true);
         });
@@ -125,7 +146,8 @@ public class SwingUI {
             // Construir/atualizar UI de mapeamento
             buildMappingUI(header);
 
-            JOptionPane.showMessageDialog(null, "CSV carregado com sucesso!");
+            // Feedback opcional
+            // JOptionPane.showMessageDialog(null, "CSV carregado com sucesso!");
 
         } catch (Exception e) {
             JOptionPane.showMessageDialog(null, "Erro ao carregar CSV: " + e.getMessage());
@@ -170,13 +192,11 @@ public class SwingUI {
 
             combo.addItemListener(e -> {
                 if (e.getStateChange() == ItemEvent.SELECTED && !refreshing) {
-                    // Atualiza os demais combos respeitando unicidade
                     refreshMappingChoices();
                 }
             });
         }
 
-        // Aplicar unicidade de opções (exceto "skip")
         refreshMappingChoices();
 
         mappingPanel.revalidate();
@@ -184,9 +204,8 @@ public class SwingUI {
     }
 
     private static void refreshMappingChoices() {
-        refreshing = true; // evita recursão por eventos ao atualizar os modelos
+        refreshing = true;
         try {
-            // Coletar opções já selecionadas (exceto "skip")
             Set<String> taken = new HashSet<>();
             for (JComboBox<String> combo : mappingCombos) {
                 String sel = selLower(combo);
@@ -195,25 +214,20 @@ public class SwingUI {
                 }
             }
 
-            // Atualizar modelo de cada combo de acordo com as seleções
             for (JComboBox<String> combo : mappingCombos) {
                 String current = selLower(combo);
                 DefaultComboBoxModel<String> newModel = new DefaultComboBoxModel<>();
                 for (String opt : JIRA_FIELDS) {
                     String lo = opt.toLowerCase(Locale.ROOT);
-                    // "skip" sempre disponível. Demais: disponíveis se não selecionados em outro combo,
-                    // ou se este combo já os tem selecionados.
                     if ("skip".equals(lo) || lo.equals(current) || !taken.contains(lo)) {
                         newModel.addElement(opt);
                     }
                 }
 
-                // Só troque o modelo se houver diferença real para reduzir eventos
                 if (!modelEquals(combo.getModel(), newModel)) {
                     combo.setModel(newModel);
                 }
 
-                // Garantir seleção atual
                 if (current == null) {
                     combo.setSelectedItem("skip");
                 } else {
@@ -265,7 +279,6 @@ public class SwingUI {
             return;
         }
 
-        // Validar mapeamentos mínimos por tipo de issue
         String cmd = (String) commandBox.getSelectedItem();
         boolean isUserStory = "UserStory".equalsIgnoreCase(cmd);
 
@@ -367,6 +380,4 @@ public class SwingUI {
         }
         return props;
     }
-
-
 }
