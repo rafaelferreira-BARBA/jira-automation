@@ -28,8 +28,8 @@ public class SwingUI {
     private static List<JComboBox<String>> mappingCombos = new ArrayList<>();
     private static boolean refreshing = false; // guard contra recursão
 
-    // Opções de campos do Jira para mapeamento
-    private static final String[] JIRA_FIELDS = new String[]{"summary", "description", "component", "parent", "label", "sp", "skip"};
+    // Opções de campos do Jira para mapeamento (sp -> estimate)
+    private static final String[] JIRA_FIELDS = new String[]{"summary", "description", "component", "parent", "label", "estimate", "skip"};
 
     public static void launch() {
         SwingUtilities.invokeLater(() -> {
@@ -186,11 +186,12 @@ public class SwingUI {
             gbc.gridx = 1;
             JComboBox<String> combo = new JComboBox<>(JIRA_FIELDS);
 
-            // Pré-seleção: se o cabeçalho equalsIgnoreCase com uma opção e ainda não usada, seleciona essa opção; senão "skip"
+            // Pré-seleção por equalsIgnoreCase; senão "skip"
             String match = findMatchingOption(headerName);
-            if (match != null && !used.contains(match.toLowerCase(Locale.ROOT))) {
+            String matchLower = match == null ? null : match.toLowerCase(Locale.ROOT);
+            if (match != null && !used.contains(matchLower) && !"skip".equals(matchLower)) {
                 combo.setSelectedItem(match);
-                used.add(match.toLowerCase(Locale.ROOT));
+                used.add(matchLower);
             } else {
                 combo.setSelectedItem("skip");
             }
@@ -211,7 +212,6 @@ public class SwingUI {
         mappingPanel.repaint();
     }
 
-    // Retorna a opção do dropdown que casa por equalsIgnoreCase com o cabeçalho; caso não haja, retorna null
     private static String findMatchingOption(String headerName) {
         if (headerName == null) return null;
         for (String opt : JIRA_FIELDS) {
@@ -310,14 +310,14 @@ public class SwingUI {
             return;
         }
 
-        int parentIdx = -1, labelIdx = -1, spIdx = -1;
+        int parentIdx = -1, labelIdx = -1, estimateIdx = -1;
         if (!isUserStory) {
             parentIdx = indexFor("parent");
             labelIdx = indexFor("label");
-            spIdx = indexFor("sp");
+            estimateIdx = indexFor("estimate");
 
-            if (parentIdx < 0 || labelIdx < 0 || spIdx < 0) {
-                JOptionPane.showMessageDialog(null, "Para Sub-Task, mapeie 'parent', 'label' e 'sp' além dos campos obrigatórios.");
+            if (parentIdx < 0 || labelIdx < 0 || estimateIdx < 0) {
+                JOptionPane.showMessageDialog(null, "Para Sub-Task, mapeie 'parent', 'label' e 'estimate' além dos campos obrigatórios.");
                 return;
             }
         }
@@ -354,8 +354,8 @@ public class SwingUI {
                 } else {
                     String parentKey = safeGet(row, parentIdx);
                     String label = safeGet(row, labelIdx);
-                    String spStr = safeGet(row, spIdx);
-                    int sp = parseIntOrZero(spStr);
+                    String estimateStr = safeGet(row, estimateIdx);
+                    int estimate = parseIntOrZero(estimateStr);
 
                     client.createSubTask(
                             parentKey,
@@ -363,13 +363,13 @@ public class SwingUI {
                             description,
                             component,
                             label,
-                            sp
+                            estimate
                     );
                 }
                 count++;
             }
 
-            JOptionPane.showMessageDialog(null, count + "tickets criados com sucesso!");
+            JOptionPane.showMessageDialog(null, count + " tickets criados com sucesso!");
 
         } catch (Exception e) {
             JOptionPane.showMessageDialog(null, "Erro ao executar automação: " + e.getMessage());
