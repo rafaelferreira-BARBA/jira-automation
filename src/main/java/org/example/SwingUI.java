@@ -78,7 +78,7 @@ public class SwingUI {
             frame.add(bottom, BorderLayout.SOUTH);
 
             mappingPanel = new JPanel(new BorderLayout());
-            mappingPanel.add(new JLabel("Mapeamento", SwingConstants.CENTER), BorderLayout.NORTH);
+            mappingPanel.add(new JLabel("", SwingConstants.CENTER), BorderLayout.NORTH);
             frame.add(mappingPanel, BorderLayout.EAST);
 
             btnChooseCsv.addActionListener(evt -> chooseCsvFile(frame));
